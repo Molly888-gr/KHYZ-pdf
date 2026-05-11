@@ -60,11 +60,14 @@ function makeDemo(): TempRecord[] {
       points.push({ time, temp: +(4 + d + Math.sin(i / 4) * 1.5 + Math.random() * 0.4).toFixed(2) });
     }
     const temps = points.map((p) => p.temp);
+    const startStr = points[0].time;
+    const endStr = points[points.length - 1].time;
     out.push({
       fileName: `demo-device-${d + 1}.pdf`,
       deviceId: `T7-A0${d + 1}`,
-      start: points[0].time,
-      end: points[points.length - 1].time,
+      start: startStr,
+      end: endStr,
+      duration: formatDuration(startStr, endStr),
       highest: Math.max(...temps),
       lowest: Math.min(...temps),
       average: +(temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(2),
@@ -282,8 +285,8 @@ function TempPage() {
     });
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
     const summary = [
-      ["文件名", "设备号", "开始时间", "结束时间", "数据点数", "最高温", "最低温", "平均温"],
-      ...records.map((r) => [r.fileName, r.deviceId, r.start, r.end, r.dataPoints, r.highest, r.lowest, r.average]),
+      ["文件名", "设备号", "开始时间", "结束时间", "运输时长", "数据点数", "最高温", "最低温", "平均温"],
+      ...records.map((r) => [r.fileName, r.deviceId, r.start, r.end, r.duration || formatDuration(r.start, r.end), r.dataPoints, r.highest, r.lowest, r.average]),
     ];
     const ws2 = XLSX.utils.aoa_to_sheet(summary);
     const wb = XLSX.utils.book_new();
@@ -430,7 +433,7 @@ function TempPage() {
                     <TableCell className="py-4 px-5 font-medium text-slate-900 w-[120px]">{r.deviceId}</TableCell>
                     <TableCell className="py-4 px-5 text-xs tabular-nums text-slate-700 w-[170px]">{r.start}</TableCell>
                     <TableCell className="py-4 px-5 text-xs tabular-nums text-slate-700 w-[170px]">{r.end}</TableCell>
-                    <TableCell className="py-4 px-5 text-sm font-semibold text-blue-600 tabular-nums w-[130px]">{formatDuration(r.start, r.end)}</TableCell>
+                    <TableCell className="py-4 px-5 text-sm font-semibold text-blue-600 tabular-nums w-[130px]">{r.duration || formatDuration(r.start, r.end)}</TableCell>
                     <TableCell className="py-4 px-5 text-right tabular-nums text-slate-700 w-[90px]">{r.dataPoints}</TableCell>
                     <TableCell className="py-4 px-5 text-right tabular-nums font-medium text-red-600 w-[90px]">{r.highest}°C</TableCell>
                     <TableCell className="py-4 px-5 text-right tabular-nums font-medium text-blue-600 w-[90px]">{r.lowest}°C</TableCell>

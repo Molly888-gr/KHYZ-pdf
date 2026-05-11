@@ -1,12 +1,14 @@
-import * as pdfjsLib from "pdfjs-dist";
-// @ts-ignore
-import workerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-
-if (typeof window !== "undefined") {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
-}
-
 export async function extractPdfText(file: File): Promise<string> {
+  if (typeof window === "undefined") {
+    throw new Error("PDF parsing is only supported in browser environment");
+  }
+  
+  const pdfjsLib = await import("pdfjs-dist");
+  // @ts-ignore
+  const { default: workerSrc } = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
+  
+  pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+  
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   let fullText = "";
@@ -57,6 +59,7 @@ export interface TempRecord {
   deviceId: string;
   start: string;
   end: string;
+  duration: string; // 运输时长，格式：xx天xxhxxmins
   highest: number;
   lowest: number;
   average: number;
@@ -64,65 +67,147 @@ export interface TempRecord {
   points: TempPoint[];
 }
 
+// 辅助函数：计算时长（End - Start）
+function calculateDuration(start: string, end: string): string {
+  if (!start || !end) return "";
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) return "";
+  
+  const diffMs = endDate.getTime() - startDate.getTime();
+  if (diffMs < 0) return "";
+  
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  
+  return `${days}天${hours}h${minutes}mins`;
+}
+
+// 辅助函数：解析中文时长格式（如 "5天19小时52分0秒"）
+function parseChineseDuration(durationStr: string): string {
+  if (!durationStr) return "";
+  const dayMatch = durationStr.match(/(\d+)\s*天/);
+  const hourMatch = durationStr.match(/(\d+)\s*小时/);
+  const minMatch = durationStr.match(/(\d+)\s*分/);
+  
+  const days = dayMatch ? parseInt(dayMatch[1]) : 0;
+  const hours = hourMatch ? parseInt(hourMatch[1]) : 0;
+  const minutes = minMatch ? parseInt(minMatch[1]) : 0;
+  
+  return `${days}天${hours}h${minutes}mins`;
+}
+
 // Parse "YY-MM-DD HH:MM:SS" → "20YY-MM-DD HH:MM:SS" (validated, UTC-safe)
 export function parseTemperaturePdf(text: string, fileName: string): TempRecord {
-  // 通过内容判断是否为中文格式（C1/C2 类 PDF）
-  const isChineseFormat = /温度曲线表/.test(text);
+  // 判断格式：格式二中文文件包含"冷链监控数据报告"或"温度曲线表"等关键词
+  const isChineseFormat = /冷链监控数据报告|温度曲线表|运输信息|发货单位/.test(text);
+  
+  // 提取8位设备号（C或T开头，8位字母数字）
+  const extractDeviceId8 = (txt: string, pattern: RegExp): string => {
+    const match = txt.match(pattern);
+    if (match) {
+      const id = match[1].trim();
+      // 确保是8位
+      const idMatch = id.match(/^[CT][A-Za-z0-9]{7}$/);
+      if (idMatch) return id.toUpperCase();
+    }
+    return "";
+  };
 
   if (isChineseFormat) {
-    // ========== 中文格式解析 ==========
+    // ========== 格式二：中文格式（CCTSCHINA 冷链监控数据报告） ==========
     
-    // 1. 设备号：从"设备号："后面提取
+    // 1. 设备号：查询"设备号"后面的8位大写字母和数字（如 T034C0FD、CD68B038）
     let deviceId = "";
-    const devMatch = text.match(/设备号[：:]\s*([A-Za-z0-9\-_]+)/);
+    // 优先匹配"设备号"后面的内容
+    const devMatch = text.match(/设备号[：:\s]+([A-Za-z0-9]+)/);
     if (devMatch) {
-      deviceId = devMatch[1].trim();
-    } else {
-      const shipmentBlock = text.match(/发货单位[\s\S]{0,200}设备号[：:]\s*([A-Za-z0-9\-_]+)/);
-      if (shipmentBlock) {
-        deviceId = shipmentBlock[1].trim();
-      }
+      const id = devMatch[1].trim();
+      // 匹配 C 或 T 开头的8位字母数字
+      const idMatch = id.match(/^([CT][A-Za-z0-9]{7})$/);
+      if (idMatch) deviceId = idMatch[1].toUpperCase();
+    }
+    // 如果上面没找到，全局搜索 C 或 T 开头的8位字母数字
+    if (!deviceId) {
+      const globalMatch = text.match(/\b([CT][A-Za-z0-9]{7})\b/);
+      if (globalMatch) deviceId = globalMatch[1].toUpperCase();
     }
 
-    // 2. 提取所有数据点
-    // C类 PDF 的数据排列特点：
-    // - 有些行是完整格式：2026-01-27 14:12:00 5.1 2026-01-27 14:14:00 5.1 ...
-    // - 有些行只有时间+温度：14:12:00 5.1 14:14:00 5.1 ...（日期继承上一行）
+    // 2. 开始时间：查询"采集开始时间"后面的内容（格式：2026-01-27 14:10:00）
+    let start = "";
+    const startMatch = text.match(/采集开始时间[：:\s]+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/);
+    if (startMatch) start = startMatch[1];
+
+    // 3. 结束时间：查询"采集结束时间"后面的内容（格式：2026-02-02 10:02:00）
+    let end = "";
+    const endMatch = text.match(/采集结束时间[：:\s]+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/);
+    if (endMatch) end = endMatch[1];
+
+    // 4. 运输时长：查询"采集时长"后面的内容（如"5天19小时52分0秒"），或计算
+    let duration = "";
+    const durationMatch = text.match(/采集时长[：:\s]+([\d天小时分秒]+)/);
+    if (durationMatch) {
+      duration = parseChineseDuration(durationMatch[1]);
+    } else if (start && end) {
+      duration = calculateDuration(start, end);
+    }
+
+    // 5. 数据点数：查询"温度记录次数"后面的数字
+    let dataPoints = 0;
+    const dpMatch = text.match(/温度记录次数[：:\s]*(\d+)/);
+    if (dpMatch) dataPoints = parseInt(dpMatch[1], 10);
+
+    // 6. 最高温：查询"最高温度"后面的数字
+    let highest = 0;
+    const highMatch = text.match(/最高温度[：:\s]*(-?\d+\.?\d*)/);
+    if (highMatch) highest = parseFloat(highMatch[1]);
+
+    // 7. 最低温：查询"最低温度"后面的数字
+    let lowest = 0;
+    const lowMatch = text.match(/最低温度[：:\s]*(-?\d+\.?\d*)/);
+    if (lowMatch) lowest = parseFloat(lowMatch[1]);
+
+    // 8. 平均温：查询"平均温度"后面的数字
+    let average = 0;
+    const avgMatch = text.match(/平均温度[：:\s]*(-?\d+\.?\d*)/);
+    if (avgMatch) average = parseFloat(avgMatch[1]);
+
+    // 9. 提取所有数据点
     const points: TempPoint[] = [];
     
     // 先尝试匹配完整日期+时间+温度
     const fullReg = /(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s+(-?\d+\.?\d*)/g;
     let match: RegExpExecArray | null;
-    let currentDate = ""; // 跟踪最近的日期
+    let currentDate = "";
     
     while ((match = fullReg.exec(text)) !== null) {
       const datePart = match[1];
       const timePart = match[2];
       const tempVal = parseFloat(match[3]);
       
-      if (!isFinite(tempVal) || tempVal < -80 || tempVal > 120) continue;
+      if (!isFinite(tempVal)) continue;
       
-      currentDate = datePart; // 记住当前日期
+      currentDate = datePart;
       points.push({ time: `${datePart} ${timePart}`, temp: tempVal });
     }
     
-    // 匹配只有时间+温度的行（格式如 "14:12:00 5.1"）
+    // 匹配只有时间+温度的行
     const timeOnlyReg = /(?<!\d{4}-\d{2}-\d{2}\s)(\d{2}:\d{2}:\d{2})\s+(-?\d+\.?\d*)/g;
     while ((match = timeOnlyReg.exec(text)) !== null) {
       const timePart = match[1];
       const tempVal = parseFloat(match[2]);
       
-      if (!isFinite(tempVal) || tempVal < -80 || tempVal > 120) continue;
-      if (!currentDate) continue; // 如果没有日期上下文则跳过
+      if (!isFinite(tempVal)) continue;
+      if (!currentDate) continue;
       
-      // 检查这个时间点是否已经存在
       const fullTime = `${currentDate} ${timePart}`;
       if (!points.some(p => p.time === fullTime)) {
         points.push({ time: fullTime, temp: tempVal });
       }
     }
 
-    // 3. 去重
+    // 去重并排序
     const seen = new Set<string>();
     const uniqPoints: TempPoint[] = [];
     for (const p of points) {
@@ -131,59 +216,98 @@ export function parseTemperaturePdf(text: string, fileName: string): TempRecord 
         uniqPoints.push(p);
       }
     }
+    uniqPoints.sort((a, b) => a.time.localeCompare(b.time));
 
-    // 4. 计算汇总数据
-    let start = "";
-    let end = "";
-    let highest = 0;
-    let lowest = 0;
-    let average = 0;
-
+    // 如果查询不到统计值，从数据点计算
     if (uniqPoints.length > 0) {
-      const sorted = [...uniqPoints].sort((a, b) => a.time.localeCompare(b.time));
-      start = sorted[0].time;
-      end = sorted[sorted.length - 1].time;
+      if (!start) start = uniqPoints[0].time;
+      if (!end) end = uniqPoints[uniqPoints.length - 1].time;
+      if (!duration && start && end) duration = calculateDuration(start, end);
+      
       const temps = uniqPoints.map((p) => p.temp);
-      highest = Math.max(...temps);
-      lowest = Math.min(...temps);
-      average = +(temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(2);
+      if (!highest) highest = Math.max(...temps);
+      if (!lowest) lowest = Math.min(...temps);
+      if (!average) average = +(temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(2);
+      if (!dataPoints) dataPoints = uniqPoints.length;
     }
 
     if (typeof window !== "undefined") {
-      console.log(`[中文PDF解析] ${fileName} 数据点=${uniqPoints.length}, 设备号=${deviceId}`);
+      console.log(`[中文PDF解析] ${fileName} 设备号=${deviceId}, 数据点=${uniqPoints.length}`);
     }
 
     return {
       fileName,
-      deviceId: deviceId || fileName,
+      deviceId: deviceId || "",
       start,
       end,
+      duration,
       highest,
       lowest,
       average,
-      dataPoints: uniqPoints.length,
+      dataPoints,
       points: uniqPoints,
     };
   }
 
-  // ========== 以下是 Frigga T7 英文格式解析（保持原有逻辑） ==========
+  // ========== 格式一：英文格式（Frigga T7 DataReport） ==========
 
-  const get = (re: RegExp) => {
-    const m = text.match(re);
-    return m ? m[1].trim() : "";
-  };
-
-  const deviceId = get(/Device\s*ID[:\s]+([A-Za-z0-9\-_]+)/i);
-  const highest = parseFloat(get(/Highest\s*Temperature[:\s]+(-?\d+\.?\d*)/i) || "0");
-  const lowest = parseFloat(get(/Lowest\s*Temperature[:\s]+(-?\d+\.?\d*)/i) || "0");
-  const average = parseFloat(get(/Average[:\s]+(-?\d+\.?\d*)/i) || "0");
-  const dataPoints = parseInt(get(/Data\s*Points[:\s]+(\d+)/i) || "0", 10);
-
-  if (typeof window !== "undefined") {
-    const firstLines = text.split("\n").filter((l) => l.trim()).slice(0, 10);
-    console.log(`[PDF解析] ${fileName} 前10行:`, firstLines);
+  // 1. 设备号：查询"Device ID"后面的8位大写字母和数字
+  let deviceId = "";
+  const devMatch = text.match(/Device\s*ID[：:\s]+([A-Za-z0-9]+)/i);
+  if (devMatch) {
+    const id = devMatch[1].trim();
+    const idMatch = id.match(/^([CT][A-Za-z0-9]{7})$/);
+    if (idMatch) deviceId = idMatch[1].toUpperCase();
+  }
+  // 如果上面没找到，全局搜索 C 或 T 开头的8位字母数字
+  if (!deviceId) {
+    const globalMatch = text.match(/\b([CT][A-Za-z0-9]{7})\b/);
+    if (globalMatch) deviceId = globalMatch[1].toUpperCase();
   }
 
+  // 2. 开始时间：查询"Start:"后面的内容（格式：26-01-27 14:08:51），仅提取时间
+  let start = "";
+  const startMatch = text.match(/Start[:\s]+(?:.*?\s)?(\d{2}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/i);
+  if (startMatch) {
+    const parsed = parseYYMMDD(startMatch[1].split(' ')[0], startMatch[1].split(' ')[1]);
+    if (parsed) start = parsed;
+  }
+
+  // 3. 结束时间：查询"End:"后面的内容（格式：26-01-27 17:46:54），仅提取时间
+  let end = "";
+  const endMatch = text.match(/End[:\s]+(?:.*?\s)?(\d{2}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/i);
+  if (endMatch) {
+    const parsed = parseYYMMDD(endMatch[1].split(' ')[0], endMatch[1].split(' ')[1]);
+    if (parsed) end = parsed;
+  }
+
+  // 4. 运输时长：计算 End - Start
+  let duration = "";
+  if (start && end) {
+    duration = calculateDuration(start, end);
+  }
+
+  // 5. 数据点数：查询"Data Points:"后面的数字
+  let dataPoints = 0;
+  const dpMatch = text.match(/Data\s*Points[:\s]*(\d+)/i);
+  if (dpMatch) dataPoints = parseInt(dpMatch[1], 10);
+
+  // 6. 最高温：查询"Highest Temperature:"后面的数字
+  let highest = 0;
+  const highMatch = text.match(/Highest\s*Temperature[:\s]*(-?\d+\.?\d*)/i);
+  if (highMatch) highest = parseFloat(highMatch[1]);
+
+  // 7. 最低温：查询"Lowest Temperature:"后面的数字
+  let lowest = 0;
+  const lowMatch = text.match(/Lowest\s*Temperature[:\s]*(-?\d+\.?\d*)/i);
+  if (lowMatch) lowest = parseFloat(lowMatch[1]);
+
+  // 8. 平均温：查询"Average:"后面的数字
+  let average = 0;
+  const avgMatch = text.match(/Average[:\s]*(-?\d+\.?\d*)/i);
+  if (avgMatch) average = parseFloat(avgMatch[1]);
+
+  // 9. 提取所有数据点
   const points2: TempPoint[] = [];
   const re = /(\d{2}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s+(-?\d+(?:\.\d+)?)/g;
   let mm: RegExpExecArray | null;
@@ -191,10 +315,11 @@ export function parseTemperaturePdf(text: string, fileName: string): TempRecord 
     const iso = parseYYMMDD(mm[1], mm[2]);
     if (!iso) continue;
     const temp = parseFloat(mm[3]);
-    if (!isFinite(temp) || temp < -80 || temp > 120) continue;
+    if (!isFinite(temp)) continue;
     points2.push({ time: iso, temp });
   }
 
+  // 去重并排序
   const seen2 = new Set<string>();
   const uniq2: TempPoint[] = [];
   for (const p of points2) {
@@ -202,28 +327,35 @@ export function parseTemperaturePdf(text: string, fileName: string): TempRecord 
     seen2.add(p.time);
     uniq2.push(p);
   }
+  uniq2.sort((a, b) => a.time.localeCompare(b.time));
 
-  let start = "";
-  let end = "";
-  if (uniq2.length) {
-    const sorted = [...uniq2].sort((a, b) => a.time.localeCompare(b.time));
-    start = sorted[0].time;
-    end = sorted[sorted.length - 1].time;
+  // 如果查询不到统计值，从数据点计算
+  if (uniq2.length > 0) {
+    if (!start) start = uniq2[0].time;
+    if (!end) end = uniq2[uniq2.length - 1].time;
+    if (!duration && start && end) duration = calculateDuration(start, end);
+    
+    const temps = uniq2.map((p) => p.temp);
+    if (!highest) highest = Math.max(...temps);
+    if (!lowest) lowest = Math.min(...temps);
+    if (!average) average = +(temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(2);
+    if (!dataPoints) dataPoints = uniq2.length;
   }
 
   if (typeof window !== "undefined") {
-    console.log(`[PDF解析] ${fileName} 数据点=${uniq2.length}, 开始=${start}, 结束=${end}`);
+    console.log(`[英文PDF解析] ${fileName} 设备号=${deviceId}, 数据点=${uniq2.length}`);
   }
 
   return {
     fileName,
-    deviceId: deviceId || fileName,
+    deviceId: deviceId || "",
     start,
     end,
+    duration,
     highest,
     lowest,
     average,
-    dataPoints: dataPoints || uniq2.length,
+    dataPoints,
     points: uniq2,
   };
 }
