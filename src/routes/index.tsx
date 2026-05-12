@@ -1,5 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import * as XLSX from "xlsx";
 import { Upload, Download, Trash2, Search, ImageDown, FileCheck2, FileX2, Files, Cpu } from "lucide-react";
@@ -16,17 +15,6 @@ import {
 } from "@/components/ui/table";
 import { extractPdfText, parseTemperaturePdf, TempRecord } from "@/lib/pdf-parser";
 import { toast } from "sonner";
-
-export const Route = createFileRoute("/")({
-  ssr: false,
-  head: () => ({
-    meta: [
-      { title: "温度PDF解析 — PDF 数据解析平台" },
-      { name: "description", content: "批量解析温度数据PDF，自动生成综合温度曲线图。" },
-    ],
-  }),
-  component: TempPage,
-});
 
 const STORAGE_KEY = "temp-records-v1";
 const COLORS = [
@@ -79,7 +67,7 @@ function makeDemo(): TempRecord[] {
   return out;
 }
 
-function TempPage() {
+export default function TempPage() {
   const [records, setRecords] = useState<TempRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
@@ -353,7 +341,6 @@ function TempPage() {
       pixelRatio: 2,
       backgroundColor: "#fff",
     });
-    // Resize to 1200x600
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement("canvas");
@@ -553,4 +540,3 @@ function TempPage() {
     </div>
   );
 }
-
