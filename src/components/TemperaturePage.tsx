@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import * as XLSX from "xlsx";
 import { Upload, Download, Trash2, Search, ImageDown, FileCheck2, FileX2, Files, Cpu } from "lucide-react";
-import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -67,7 +66,7 @@ function makeDemo(): TempRecord[] {
   return out;
 }
 
-export default function TempPage() {
+export function TemperaturePage() {
   const [records, setRecords] = useState<TempRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
@@ -75,7 +74,6 @@ export default function TempPage() {
   const [lower, setLower] = useState<string>("2");
   const [showLimits, setShowLimits] = useState(false);
   const chartRef = useRef<any>(null);
-
   const [stats, setStats] = useState({ uploaded: 0, success: 0, failed: 0 });
 
   useEffect(() => {
@@ -270,13 +268,12 @@ export default function TempPage() {
   async function exportExcel() {
     const u = parseFloat(upper);
     const l = parseFloat(lower);
-    
+
     const toastId = toast.loading("正在生成 Excel...");
-    
+
     try {
       const wb = XLSX.utils.book_new();
-      
-      // 1. 每个设备单独一个工作表
+
       for (const r of records) {
         const header = ["序号", "时间", "温度(°C)"];
         const rows = r.points.map((p, idx) => [idx + 1, p.time, p.temp]);
@@ -285,8 +282,7 @@ export default function TempPage() {
         XLSX.utils.book_append_sheet(wb, ws, sheetName);
         await new Promise(resolve => setTimeout(resolve, 0));
       }
-      
-      // 2. 综合温度数据工作表
+
       const allTimes = new Set<string>();
       records.forEach((r) => r.points.forEach((p) => allTimes.add(p.time)));
       const sorted = Array.from(allTimes).sort();
@@ -305,8 +301,7 @@ export default function TempPage() {
       }
       const combinedWs = XLSX.utils.aoa_to_sheet([combinedHeader, ...combinedRows]);
       XLSX.utils.book_append_sheet(wb, combinedWs, "综合温度数据");
-      
-      // 3. 上下限数据工作表
+
       const limitsData = [
         ["参数", "值", "单位"],
         ["温度上限", isNaN(u) ? "" : u, "°C"],
@@ -314,18 +309,17 @@ export default function TempPage() {
       ];
       const limitsWs = XLSX.utils.aoa_to_sheet(limitsData);
       XLSX.utils.book_append_sheet(wb, limitsWs, "上下限数据");
-      
-      // 4. 汇总信息工作表
+
       const summary = [
         ["文件名", "设备号", "开始时间", "结束时间", "运输时长", "数据点数", "最高温(°C)", "最低温(°C)", "平均温(°C)"],
         ...records.map((r) => [r.fileName, r.deviceId, r.start, r.end, r.duration || formatDuration(r.start, r.end), r.dataPoints, r.highest, r.lowest, r.average]),
       ];
       const summaryWs = XLSX.utils.aoa_to_sheet(summary);
       XLSX.utils.book_append_sheet(wb, summaryWs, "汇总信息");
-      
+
       await new Promise(resolve => setTimeout(resolve, 0));
       XLSX.writeFile(wb, "温度数据汇总.xlsx");
-      
+
       toast.success("Excel 导出成功！", { id: toastId });
     } catch (error) {
       toast.error("Excel 导出失败", { id: toastId });
@@ -359,184 +353,181 @@ export default function TempPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <AppHeader />
-      <main className="mx-auto max-w-7xl px-6 py-8 space-y-8">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[
-            { label: "已上传文件", value: stats.uploaded, icon: Files, color: "text-blue-600", bg: "bg-blue-50" },
-            { label: "成功解析", value: stats.success, icon: FileCheck2, color: "text-emerald-600", bg: "bg-emerald-50" },
-            { label: "解析失败", value: stats.failed, icon: FileX2, color: "text-red-500", bg: "bg-red-50" },
-            { label: "已识别设备", value: new Set(records.map((r) => r.deviceId)).size, icon: Cpu, color: "text-violet-600", bg: "bg-violet-50" },
-          ].map((s) => (
-            <div key={s.label} className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all p-5 border border-slate-100" style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-              <div className={`rounded-xl p-2.5 ${s.bg}`}>
-                <s.icon className={`h-5 w-5 ${s.color}`} />
-              </div>
-              <div>
-                <div className="text-xs text-slate-500 font-medium">{s.label}</div>
-                <div className="text-2xl font-bold tabular-nums tracking-tight text-slate-900">{s.value}</div>
-              </div>
+    <main className="mx-auto max-w-7xl px-6 py-8 space-y-8">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { label: "已上传文件", value: stats.uploaded, icon: Files, color: "text-blue-600", bg: "bg-blue-50" },
+          { label: "成功解析", value: stats.success, icon: FileCheck2, color: "text-emerald-600", bg: "bg-emerald-50" },
+          { label: "解析失败", value: stats.failed, icon: FileX2, color: "text-red-500", bg: "bg-red-50" },
+          { label: "已识别设备", value: new Set(records.map((r) => r.deviceId)).size, icon: Cpu, color: "text-violet-600", bg: "bg-violet-50" },
+        ].map((s) => (
+          <div key={s.label} className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all p-5 border border-slate-100" style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+            <div className={`rounded-xl p-2.5 ${s.bg}`}>
+              <s.icon className={`h-5 w-5 ${s.color}`} />
             </div>
-          ))}
+            <div>
+              <div className="text-xs text-slate-500 font-medium">{s.label}</div>
+              <div className="text-2xl font-bold tabular-nums tracking-tight text-slate-900">{s.value}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight text-slate-900">批量上传温度数据PDF</h2>
+            <p className="text-sm text-slate-500 mt-1">
+              已识别 <span className="font-semibold text-blue-600">{new Set(records.map((r) => r.deviceId)).size}</span> 台设备
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <label>
+              <input
+                type="file"
+                multiple
+                accept="application/pdf"
+                className="hidden"
+                onChange={(e) => handleFiles(e.target.files)}
+              />
+              <Button asChild disabled={loading} className="h-10 rounded-xl bg-blue-600 hover:bg-blue-700 px-5">
+                <span className="cursor-pointer flex items-center">
+                  <Upload className="mr-2 h-4 w-4" />
+                  {loading ? "解析中..." : "选择文件"}
+                </span>
+              </Button>
+            </label>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRecords([]);
+                setStats({ uploaded: 0, success: 0, failed: 0 });
+                localStorage.removeItem(STORAGE_KEY);
+              }}
+              className="h-10 rounded-xl"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              清空
+            </Button>
+          </div>
         </div>
+        <div className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl p-10 text-center bg-slate-50/50 transition-colors duration-200">
+          <Upload className="mx-auto h-10 w-10 text-slate-400 mb-3" />
+          <p className="text-sm font-medium text-slate-600">点击或拖拽 PDF 文件到此处</p>
+          <p className="text-xs text-slate-400 mt-1">可批量上传多个文件</p>
+        </div>
+      </section>
 
-        <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight text-slate-900">批量上传温度数据PDF</h2>
-              <p className="text-sm text-slate-500 mt-1">
-                已识别 <span className="font-semibold text-blue-600">{new Set(records.map((r) => r.deviceId)).size}</span> 台设备
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <label>
-                <input
-                  type="file"
-                  multiple
-                  accept="application/pdf"
-                  className="hidden"
-                  onChange={(e) => handleFiles(e.target.files)}
-                />
-                <Button asChild disabled={loading} className="h-10 rounded-xl bg-blue-600 hover:bg-blue-700 px-5">
-                  <span className="cursor-pointer flex items-center">
-                    <Upload className="mr-2 h-4 w-4" />
-                    {loading ? "解析中..." : "选择文件"}
-                  </span>
-                </Button>
-              </label>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setRecords([]);
-                  setStats({ uploaded: 0, success: 0, failed: 0 });
-                  localStorage.removeItem(STORAGE_KEY);
-                }}
-                className="h-10 rounded-xl"
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                清空
-              </Button>
-            </div>
+      <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+        <div className="flex items-center justify-between mb-5 gap-4 flex-wrap">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight text-slate-900">解析结果汇总</h2>
+            <p className="text-sm text-slate-500 mt-1">共 {filtered.length} 条记录</p>
           </div>
-          <div className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl p-10 text-center bg-slate-50/50 transition-colors duration-200">
-            <Upload className="mx-auto h-10 w-10 text-slate-400 mb-3" />
-            <p className="text-sm font-medium text-slate-600">点击或拖拽 PDF 文件到此处</p>
-            <p className="text-xs text-slate-400 mt-1">可批量上传多个文件</p>
-          </div>
-        </section>
-
-        <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-          <div className="flex items-center justify-between mb-5 gap-4 flex-wrap">
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight text-slate-900">解析结果汇总</h2>
-              <p className="text-sm text-slate-500 mt-1">共 {filtered.length} 条记录</p>
+          <div className="flex gap-3 items-center">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Input
+                placeholder="搜索文件 / 设备号"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9 h-10 rounded-xl bg-white border-slate-200 w-full"
+              />
             </div>
-            <div className="flex gap-3 items-center">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <Input
-                  placeholder="搜索文件 / 设备号"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9 h-10 rounded-xl bg-white border-slate-200 w-full"
-                />
-              </div>
-              <Button onClick={exportExcel} disabled={!records.length} className="h-10 rounded-xl bg-blue-600 hover:bg-blue-700">
-                <Download className="mr-1.5 h-4 w-4" />
-                导出综合温度数据Excel
-              </Button>
-            </div>
+            <Button onClick={exportExcel} disabled={!records.length} className="h-10 rounded-xl bg-blue-600 hover:bg-blue-700">
+              <Download className="mr-1.5 h-4 w-4" />
+              导出综合温度数据Excel
+            </Button>
           </div>
-          <div className="overflow-auto max-h-[500px] rounded-2xl border border-slate-200">
-            <Table>
-              <TableHeader className="bg-slate-100 sticky top-0 z-10">
-                <TableRow className="hover:bg-transparent border-slate-200">
-                  <TableHead className="py-4 px-5 text-sm font-semibold text-slate-700 w-[220px]">文件名</TableHead>
-                  <TableHead className="py-4 px-5 text-sm font-semibold text-slate-700 w-[120px]">设备号</TableHead>
-                  <TableHead className="py-4 px-5 text-sm font-semibold text-slate-700 w-[170px]">开始时间</TableHead>
-                  <TableHead className="py-4 px-5 text-sm font-semibold text-slate-700 w-[170px]">结束时间</TableHead>
-                  <TableHead className="py-4 px-5 text-sm font-semibold text-slate-700 w-[130px]">运输时长</TableHead>
-                  <TableHead className="py-4 px-5 text-right text-sm font-semibold text-slate-700 w-[90px]">数据点数</TableHead>
-                  <TableHead className="py-4 px-5 text-right text-sm font-semibold text-slate-700 w-[90px]">最高温</TableHead>
-                  <TableHead className="py-4 px-5 text-right text-sm font-semibold text-slate-700 w-[90px]">最低温</TableHead>
-                  <TableHead className="py-4 px-5 text-right text-sm font-semibold text-slate-700 w-[90px]">平均温</TableHead>
+        </div>
+        <div className="overflow-auto max-h-[500px] rounded-2xl border border-slate-200">
+          <Table>
+            <TableHeader className="bg-slate-100 sticky top-0 z-10">
+              <TableRow className="hover:bg-transparent border-slate-200">
+                <TableHead className="py-4 px-5 text-sm font-semibold text-slate-700 w-[220px]">文件名</TableHead>
+                <TableHead className="py-4 px-5 text-sm font-semibold text-slate-700 w-[120px]">设备号</TableHead>
+                <TableHead className="py-4 px-5 text-sm font-semibold text-slate-700 w-[170px]">开始时间</TableHead>
+                <TableHead className="py-4 px-5 text-sm font-semibold text-slate-700 w-[170px]">结束时间</TableHead>
+                <TableHead className="py-4 px-5 text-sm font-semibold text-slate-700 w-[130px]">运输时长</TableHead>
+                <TableHead className="py-4 px-5 text-right text-sm font-semibold text-slate-700 w-[90px]">数据点数</TableHead>
+                <TableHead className="py-4 px-5 text-right text-sm font-semibold text-slate-700 w-[90px]">最高温</TableHead>
+                <TableHead className="py-4 px-5 text-right text-sm font-semibold text-slate-700 w-[90px]">最低温</TableHead>
+                <TableHead className="py-4 px-5 text-right text-sm font-semibold text-slate-700 w-[90px]">平均温</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.map((r, i) => (
+                <TableRow key={i} className="hover:bg-slate-50 border-b border-slate-100">
+                  <TableCell className="py-4 px-5 font-mono text-xs text-slate-500 w-[220px] truncate">{r.fileName}</TableCell>
+                  <TableCell className="py-4 px-5 font-medium text-slate-900 w-[120px]">{r.deviceId}</TableCell>
+                  <TableCell className="py-4 px-5 text-xs tabular-nums text-slate-700 w-[170px]">{r.start}</TableCell>
+                  <TableCell className="py-4 px-5 text-xs tabular-nums text-slate-700 w-[170px]">{r.end}</TableCell>
+                  <TableCell className="py-4 px-5 text-sm font-semibold text-blue-600 tabular-nums w-[130px]">{r.duration || formatDuration(r.start, r.end)}</TableCell>
+                  <TableCell className="py-4 px-5 text-right tabular-nums text-slate-700 w-[90px]">{r.dataPoints}</TableCell>
+                  <TableCell className="py-4 px-5 text-right tabular-nums font-medium text-red-600 w-[90px]">{r.highest}°C</TableCell>
+                  <TableCell className="py-4 px-5 text-right tabular-nums font-medium text-blue-600 w-[90px]">{r.lowest}°C</TableCell>
+                  <TableCell className="py-4 px-5 text-right tabular-nums font-medium text-slate-900 w-[90px]">{r.average}°C</TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((r, i) => (
-                  <TableRow key={i} className="hover:bg-slate-50 border-b border-slate-100">
-                    <TableCell className="py-4 px-5 font-mono text-xs text-slate-500 w-[220px] truncate">{r.fileName}</TableCell>
-                    <TableCell className="py-4 px-5 font-medium text-slate-900 w-[120px]">{r.deviceId}</TableCell>
-                    <TableCell className="py-4 px-5 text-xs tabular-nums text-slate-700 w-[170px]">{r.start}</TableCell>
-                    <TableCell className="py-4 px-5 text-xs tabular-nums text-slate-700 w-[170px]">{r.end}</TableCell>
-                    <TableCell className="py-4 px-5 text-sm font-semibold text-blue-600 tabular-nums w-[130px]">{r.duration || formatDuration(r.start, r.end)}</TableCell>
-                    <TableCell className="py-4 px-5 text-right tabular-nums text-slate-700 w-[90px]">{r.dataPoints}</TableCell>
-                    <TableCell className="py-4 px-5 text-right tabular-nums font-medium text-red-600 w-[90px]">{r.highest}°C</TableCell>
-                    <TableCell className="py-4 px-5 text-right tabular-nums font-medium text-blue-600 w-[90px]">{r.lowest}°C</TableCell>
-                    <TableCell className="py-4 px-5 text-right tabular-nums font-medium text-slate-900 w-[90px]">{r.average}°C</TableCell>
-                  </TableRow>
-                ))}
-                {!filtered.length && (
-                  <TableRow>
-                    <TableCell colSpan={9} className="text-center text-slate-400 py-16">
-                      暂无数据
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </section>
+              ))}
+              {!filtered.length && (
+                <TableRow>
+                  <TableCell colSpan={9} className="text-center text-slate-400 py-16">
+                    暂无数据
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </section>
 
-        <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-          <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight text-slate-900">综合温度曲线图</h2>
-              <p className="text-sm text-slate-500 mt-1">输入上下限温度后生成多设备叠加曲线</p>
-            </div>
-            <div className="flex gap-3 items-center flex-wrap">
-              <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 h-10 border border-slate-200">
-                <span className="text-xs font-medium text-slate-500">上限</span>
-                <Input
-                  type="number"
-                  step="0.1"
-                  value={upper}
-                  onChange={(e) => setUpper(e.target.value)}
-                  className="w-20 h-7 border-0 bg-white shadow-sm tabular-nums"
-                />
-                <span className="text-xs text-slate-500">°C</span>
-              </div>
-              <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 h-10 border border-slate-200">
-                <span className="text-xs font-medium text-slate-500">下限</span>
-                <Input
-                  type="number"
-                  step="0.1"
-                  value={lower}
-                  onChange={(e) => setLower(e.target.value)}
-                  className="w-20 h-7 border-0 bg-white shadow-sm tabular-nums"
-                />
-                <span className="text-xs text-slate-500">°C</span>
-              </div>
-              <Button onClick={generateChart} disabled={!records.length} className="h-10 rounded-xl bg-blue-600 hover:bg-blue-700">
-                生成曲线图
-              </Button>
-              <Button variant="outline" onClick={exportPng} disabled={!records.length} className="h-10 rounded-xl">
-                <ImageDown className="mr-1.5 h-4 w-4" />
-                导出PNG图片
-              </Button>
-            </div>
+      <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+        <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight text-slate-900">综合温度曲线图</h2>
+            <p className="text-sm text-slate-500 mt-1">输入上下限温度后生成多设备叠加曲线</p>
           </div>
-          <div className="bg-slate-50/50 rounded-2xl border border-slate-200 p-4">
-            <ReactECharts
-              ref={chartRef}
-              option={chartOption}
-              style={{ height: 560, width: "100%" }}
-              notMerge
-            />
+          <div className="flex gap-3 items-center flex-wrap">
+            <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 h-10 border border-slate-200">
+              <span className="text-xs font-medium text-slate-500">上限</span>
+              <Input
+                type="number"
+                step="0.1"
+                value={upper}
+                onChange={(e) => setUpper(e.target.value)}
+                className="w-20 h-7 border-0 bg-white shadow-sm tabular-nums"
+              />
+              <span className="text-xs text-slate-500">°C</span>
+            </div>
+            <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 h-10 border border-slate-200">
+              <span className="text-xs font-medium text-slate-500">下限</span>
+              <Input
+                type="number"
+                step="0.1"
+                value={lower}
+                onChange={(e) => setLower(e.target.value)}
+                className="w-20 h-7 border-0 bg-white shadow-sm tabular-nums"
+              />
+              <span className="text-xs text-slate-500">°C</span>
+            </div>
+            <Button onClick={generateChart} disabled={!records.length} className="h-10 rounded-xl bg-blue-600 hover:bg-blue-700">
+              生成曲线图
+            </Button>
+            <Button variant="outline" onClick={exportPng} disabled={!records.length} className="h-10 rounded-xl">
+              <ImageDown className="mr-1.5 h-4 w-4" />
+              导出PNG图片
+            </Button>
           </div>
-        </section>
-      </main>
-    </div>
+        </div>
+        <div className="bg-slate-50/50 rounded-2xl border border-slate-200 p-4">
+          <ReactECharts
+            ref={chartRef}
+            option={chartOption}
+            style={{ height: 560, width: "100%" }}
+            notMerge
+          />
+        </div>
+      </section>
+    </main>
   );
 }
