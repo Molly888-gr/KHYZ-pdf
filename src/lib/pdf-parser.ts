@@ -120,19 +120,21 @@ export function parseTemperaturePdf(text: string, fileName: string): TempRecord 
     
     // 1. 设备号：查询"设备号"后面的8位大写字母和数字（如 T034C0FD、CD68B038）
     let deviceId = "";
-    // 优先匹配"设备号"后面的内容
-    const devMatch = text.match(/设备号[：:\s]+([A-Za-z0-9]+)/);
+    // 优先匹配"设备号"后面的内容，直接在regex内部限制格式
+    const devMatch = text.match(
+      /设备号[\s：:]*([CT][A-Za-z0-9]{7})/i
+    );
     if (devMatch) {
-      const id = devMatch[1].trim();
-      // 匹配 C 或 T 开头的8位字母数字
-      const idMatch = id.match(/^([CT][A-Za-z0-9]{7})$/);
-      if (idMatch) deviceId = idMatch[1].toUpperCase();
+      deviceId = devMatch[1].toUpperCase();
     }
-    // 如果上面没找到，全局搜索 C 或 T 开头的8位字母数字
-    // 注意：不能用 \b 边界，因为像 CD68B057 这样中间有大写字母的情况下边界不生效
+    // fallback：全文搜索 C 或 T 开头的8位字母数字
     if (!deviceId) {
-      const globalMatch = text.match(/(?<![A-Za-z0-9])([CT][A-Za-z0-9]{7})(?![A-Za-z0-9])/);
-      if (globalMatch) deviceId = globalMatch[1].toUpperCase();
+      const globalMatch = text.match(
+        /\b([CT][A-Za-z0-9]{7})\b/i
+      );
+      if (globalMatch) {
+        deviceId = globalMatch[1].toUpperCase();
+      }
     }
 
     // 2. 开始时间：查询"采集开始时间"后面的内容（格式：2026-01-27 14:10:00）
