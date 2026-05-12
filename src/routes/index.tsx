@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import ReactECharts from "echarts-for-react";
 import * as XLSX from "xlsx";
 import { Upload, Download, Trash2, Search, ImageDown, FileCheck2, FileX2, Files, Cpu } from "lucide-react";
@@ -101,7 +101,11 @@ function TempPage() {
   }, []);
 
   useEffect(() => {
-    if (records.length) localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+    if (!records.length) return;
+    const timer = setTimeout(() => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+    }, 1000);
+    return () => clearTimeout(timer);
   }, [records]);
 
   async function handleFiles(files: FileList | null) {
@@ -147,18 +151,42 @@ function TempPage() {
     [records, search]
   );
 
+  const chartStats = useMemo(() => {
+    if (records.length === 0) {
+      return { totalPoints: 0, minT: Infinity, maxT: -Infinity, minVal: Infinity, maxVal: -Infinity };
+    }
+    let totalPoints = 0;
+    let minT = Infinity, maxT = -Infinity;
+    let minVal = Infinity, maxVal = -Infinity;
+    for (const r of records) {
+      totalPoints += r.points.length;
+      for (const p of r.points) {
+        const ts = new Date(p.time).getTime();
+        if (ts < minT) minT = ts;
+        if (ts > maxT) maxT = ts;
+        if (p.temp < minVal) minVal = p.temp;
+        if (p.temp > maxVal) maxVal = p.temp;
+      }
+    }
+    return { totalPoints, minT, maxT, minVal, maxVal };
+  }, [records]);
+
   const chartOption = useMemo(() => {
+    const { totalPoints, minT, maxT, minVal, maxVal } = chartStats;
+    const u = parseFloat(upper);
+    const l = parseFloat(lower);
+
     const series: any[] = records.map((r, i) => ({
       name: r.deviceId,
       type: "line",
-      showSymbol: false,
+      showSymbol: totalPoints < 500,
       lineStyle: { width: 2.25, type: "solid" },
       itemStyle: { color: COLORS[i % COLORS.length] },
       data: r.points.map((p) => [p.time, p.temp]),
+      sampling: totalPoints > 1000 ? "lttb" : undefined,
     }));
+
     if (showLimits) {
-      const u = parseFloat(upper);
-      const l = parseFloat(lower);
       if (!isNaN(u))
         series.push({
           name: "上限",
@@ -184,78 +212,57 @@ function TempPage() {
           data: [],
         });
     }
+
+    let xInterval = 0;
+    if (totalPoints > 200) xInterval = totalPoints <= 1000 ? 3 : totalPoints <= 3000 ? 5 : 8;
+
+    let splitNum = 10;
+    if (records.length > 0 && !isNaN(minT) && !isNaN(maxT)) {
+      const spanH = (maxT - minT) / 3600000;
+      if (spanH <= 2) splitNum = Math.ceil(spanH * 6);
+      else if (spanH <= 6) splitNum = Math.ceil(spanH * 2);
+      else if (spanH <= 24) splitNum = Math.ceil(spanH);
+      else if (spanH <= 72) splitNum = Math.ceil(spanH / 3);
+      else if (spanH <= 168) splitNum = Math.ceil(spanH / 6);
+      else splitNum = Math.ceil(spanH / 12);
+    }
+
+    let yMin = isFinite(minVal) ? Math.floor(minVal - 1) : undefined;
+    if (!isNaN(l) && l < (yMin ?? Infinity)) yMin = Math.floor(l - 1);
+
+    let yMax = isFinite(maxVal) ? Math.ceil(maxVal + 1) : undefined;
+    if (!isNaN(u) && u > (yMax ?? -Infinity)) yMax = Math.ceil(u + 1);
+
     return {
-      tooltip: { trigger: "axis" },
-      legend: { top: 0, type: "scroll" },
-      grid: { left: 50, right: 30, top: 40, bottom: 60 },
-            xAxis: {
+      tooltip: { trigger: "axis", backgroundColor: "rgba(255,255,255,0.95)", borderColor: "#e5e7eb" },
+      legend: { top: 0, type: "scroll", pageTextStyle: { color: "#6b7280" } },
+      grid: { left: 60, right: 40, top: 50, bottom: 80 },
+      xAxis: {
         type: "time",
         axisLabel: {
-          rotate: 45,
-          interval: (() => {
-            let total = 0;
-            records.forEach((r) => total += r.points.length);
-            if (total <= 200) return 0;
-            if (total <= 1000) return 3;
-            if (total <= 3000) return 5;
-            return 8;
-          })(),
+          rotate: totalPoints > 500 ? 45 : 0,
+          interval: xInterval,
           formatter: (value: number) => {
             const d = new Date(value);
-            const Y = d.getFullYear();
-            const M = String(d.getMonth() + 1).padStart(2, "0");
-            const D = String(d.getDate()).padStart(2, "0");
-            const h = String(d.getHours()).padStart(2, "0");
-            const m = String(d.getMinutes()).padStart(2, "0");
-            return `${Y}/${M}/${D} ${h}:${m}`;
+            return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
           },
         },
         minInterval: 2 * 60 * 1000,
-        splitNumber: (() => {
-          if (records.length === 0) return 10;
-          let minT = Infinity, maxT = -Infinity;
-          records.forEach((r) => r.points.forEach((p) => {
-            const ts = new Date(p.time).getTime();
-            if (ts < minT) minT = ts;
-            if (ts > maxT) maxT = ts;
-          }));
-          const spanH = (maxT - minT) / 3600000;
-          if (spanH <= 2) return Math.ceil(spanH * 6);
-          if (spanH <= 6) return Math.ceil(spanH * 2);
-          if (spanH <= 24) return Math.ceil(spanH);
-          if (spanH <= 72) return Math.ceil(spanH / 3);
-          if (spanH <= 168) return Math.ceil(spanH / 6);
-          return Math.ceil(spanH / 12);
-        })(),
+        splitNumber: splitNum,
       },
-      
-            yAxis: {
+      yAxis: {
         type: "value",
         name: "°C",
-        min: (() => {
-          const u = parseFloat(upper);
-          const l = parseFloat(lower);
-          let minVal = Infinity;
-          records.forEach((r) => r.points.forEach((p) => { if (p.temp < minVal) minVal = p.temp; }));
-          if (!isNaN(l) && l < minVal) minVal = l;
-          return isFinite(minVal) ? Math.floor(minVal - 1) : undefined;
-        })(),
-        max: (() => {
-          const u = parseFloat(upper);
-          const l = parseFloat(lower);
-          let maxVal = -Infinity;
-          records.forEach((r) => r.points.forEach((p) => { if (p.temp > maxVal) maxVal = p.temp; }));
-          if (!isNaN(u) && u > maxVal) maxVal = u;
-          return isFinite(maxVal) ? Math.ceil(maxVal + 1) : undefined;
-        })(),
+        min: yMin,
+        max: yMax,
       },
-      dataZoom: [
+      dataZoom: totalPoints > 200 ? [
         { type: "inside" },
         { type: "slider", height: 20, bottom: 10 },
-      ],
+      ] : [],
       series,
     };
-  }, [records, showLimits, upper, lower]);
+  }, [records, showLimits, upper, lower, chartStats]);
 
   function generateChart() {
     if (!upper || !lower) {
@@ -266,58 +273,70 @@ function TempPage() {
     toast.success("已生成综合温度曲线图");
   }
 
-  function exportExcel() {
+  async function exportExcel() {
     const u = parseFloat(upper);
     const l = parseFloat(lower);
     
-    const wb = XLSX.utils.book_new();
+    const toastId = toast.loading("正在生成 Excel...");
     
-    // 1. 每个设备单独一个工作表
-    records.forEach((r) => {
-      const header = ["序号", "时间", "温度(°C)"];
-      const rows = r.points.map((p, idx) => [idx + 1, p.time, p.temp]);
-      const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
-      // 清理设备号中的特殊字符，确保工作表名称有效
-      const sheetName = (r.deviceId || r.fileName).replace(/[\\/*?[\]:]/g, "_").substring(0, 31);
-      XLSX.utils.book_append_sheet(wb, ws, sheetName);
-    });
-    
-    // 2. 综合温度数据工作表（包含所有设备）
-    const allTimes = new Set<string>();
-    records.forEach((r) => r.points.forEach((p) => allTimes.add(p.time)));
-    const sorted = Array.from(allTimes).sort();
-    const combinedHeader = ["时间", ...records.map((r) => r.deviceId), "上限", "下限"];
-    const combinedRows = sorted.map((t) => {
-      const row: any[] = [t];
+    try {
+      const wb = XLSX.utils.book_new();
+      
+      // 1. 每个设备单独一个工作表
       for (const r of records) {
-        const p = r.points.find((pt) => pt.time === t);
-        row.push(p ? p.temp : "");
+        const header = ["序号", "时间", "温度(°C)"];
+        const rows = r.points.map((p, idx) => [idx + 1, p.time, p.temp]);
+        const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+        const sheetName = (r.deviceId || r.fileName).replace(/[\\/*?[\]:]/g, "_").substring(0, 31);
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
-      row.push(isNaN(u) ? "" : u);
-      row.push(isNaN(l) ? "" : l);
-      return row;
-    });
-    const combinedWs = XLSX.utils.aoa_to_sheet([combinedHeader, ...combinedRows]);
-    XLSX.utils.book_append_sheet(wb, combinedWs, "综合温度数据");
-    
-    // 3. 上下限数据工作表
-    const limitsData = [
-      ["参数", "值", "单位"],
-      ["温度上限", isNaN(u) ? "" : u, "°C"],
-      ["温度下限", isNaN(l) ? "" : l, "°C"],
-    ];
-    const limitsWs = XLSX.utils.aoa_to_sheet(limitsData);
-    XLSX.utils.book_append_sheet(wb, limitsWs, "上下限数据");
-    
-    // 4. 汇总信息工作表
-    const summary = [
-      ["文件名", "设备号", "开始时间", "结束时间", "运输时长", "数据点数", "最高温(°C)", "最低温(°C)", "平均温(°C)"],
-      ...records.map((r) => [r.fileName, r.deviceId, r.start, r.end, r.duration || formatDuration(r.start, r.end), r.dataPoints, r.highest, r.lowest, r.average]),
-    ];
-    const summaryWs = XLSX.utils.aoa_to_sheet(summary);
-    XLSX.utils.book_append_sheet(wb, summaryWs, "汇总信息");
-    
-    XLSX.writeFile(wb, "温度数据汇总.xlsx");
+      
+      // 2. 综合温度数据工作表
+      const allTimes = new Set<string>();
+      records.forEach((r) => r.points.forEach((p) => allTimes.add(p.time)));
+      const sorted = Array.from(allTimes).sort();
+      const combinedHeader = ["时间", ...records.map((r) => r.deviceId), "上限", "下限"];
+      const combinedRows = [];
+      for (const t of sorted) {
+        const row: any[] = [t];
+        for (const r of records) {
+          const p = r.points.find((pt) => pt.time === t);
+          row.push(p ? p.temp : "");
+        }
+        row.push(isNaN(u) ? "" : u);
+        row.push(isNaN(l) ? "" : l);
+        combinedRows.push(row);
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      const combinedWs = XLSX.utils.aoa_to_sheet([combinedHeader, ...combinedRows]);
+      XLSX.utils.book_append_sheet(wb, combinedWs, "综合温度数据");
+      
+      // 3. 上下限数据工作表
+      const limitsData = [
+        ["参数", "值", "单位"],
+        ["温度上限", isNaN(u) ? "" : u, "°C"],
+        ["温度下限", isNaN(l) ? "" : l, "°C"],
+      ];
+      const limitsWs = XLSX.utils.aoa_to_sheet(limitsData);
+      XLSX.utils.book_append_sheet(wb, limitsWs, "上下限数据");
+      
+      // 4. 汇总信息工作表
+      const summary = [
+        ["文件名", "设备号", "开始时间", "结束时间", "运输时长", "数据点数", "最高温(°C)", "最低温(°C)", "平均温(°C)"],
+        ...records.map((r) => [r.fileName, r.deviceId, r.start, r.end, r.duration || formatDuration(r.start, r.end), r.dataPoints, r.highest, r.lowest, r.average]),
+      ];
+      const summaryWs = XLSX.utils.aoa_to_sheet(summary);
+      XLSX.utils.book_append_sheet(wb, summaryWs, "汇总信息");
+      
+      await new Promise(resolve => setTimeout(resolve, 0));
+      XLSX.writeFile(wb, "温度数据汇总.xlsx");
+      
+      toast.success("Excel 导出成功！", { id: toastId });
+    } catch (error) {
+      toast.error("Excel 导出失败", { id: toastId });
+      console.error("Export error:", error);
+    }
   }
 
   function exportPng() {
