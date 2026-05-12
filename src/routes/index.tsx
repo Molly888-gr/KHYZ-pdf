@@ -267,13 +267,27 @@ function TempPage() {
   }
 
   function exportExcel() {
+    const u = parseFloat(upper);
+    const l = parseFloat(lower);
+    
+    const wb = XLSX.utils.book_new();
+    
+    // 1. 每个设备单独一个工作表
+    records.forEach((r) => {
+      const header = ["序号", "时间", "温度(°C)"];
+      const rows = r.points.map((p, idx) => [idx + 1, p.time, p.temp]);
+      const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+      // 清理设备号中的特殊字符，确保工作表名称有效
+      const sheetName = (r.deviceId || r.fileName).replace(/[\\/*?[\]:]/g, "_").substring(0, 31);
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    });
+    
+    // 2. 综合温度数据工作表（包含所有设备）
     const allTimes = new Set<string>();
     records.forEach((r) => r.points.forEach((p) => allTimes.add(p.time)));
     const sorted = Array.from(allTimes).sort();
-    const u = parseFloat(upper);
-    const l = parseFloat(lower);
-    const header = ["时间", ...records.map((r) => r.deviceId), "上限", "下限"];
-    const rows = sorted.map((t) => {
+    const combinedHeader = ["时间", ...records.map((r) => r.deviceId), "上限", "下限"];
+    const combinedRows = sorted.map((t) => {
       const row: any[] = [t];
       for (const r of records) {
         const p = r.points.find((pt) => pt.time === t);
@@ -283,16 +297,27 @@ function TempPage() {
       row.push(isNaN(l) ? "" : l);
       return row;
     });
-    const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+    const combinedWs = XLSX.utils.aoa_to_sheet([combinedHeader, ...combinedRows]);
+    XLSX.utils.book_append_sheet(wb, combinedWs, "综合温度数据");
+    
+    // 3. 上下限数据工作表
+    const limitsData = [
+      ["参数", "值", "单位"],
+      ["温度上限", isNaN(u) ? "" : u, "°C"],
+      ["温度下限", isNaN(l) ? "" : l, "°C"],
+    ];
+    const limitsWs = XLSX.utils.aoa_to_sheet(limitsData);
+    XLSX.utils.book_append_sheet(wb, limitsWs, "上下限数据");
+    
+    // 4. 汇总信息工作表
     const summary = [
-      ["文件名", "设备号", "开始时间", "结束时间", "运输时长", "数据点数", "最高温", "最低温", "平均温"],
+      ["文件名", "设备号", "开始时间", "结束时间", "运输时长", "数据点数", "最高温(°C)", "最低温(°C)", "平均温(°C)"],
       ...records.map((r) => [r.fileName, r.deviceId, r.start, r.end, r.duration || formatDuration(r.start, r.end), r.dataPoints, r.highest, r.lowest, r.average]),
     ];
-    const ws2 = XLSX.utils.aoa_to_sheet(summary);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "综合温度数据");
-    XLSX.utils.book_append_sheet(wb, ws2, "汇总");
-    XLSX.writeFile(wb, "综合温度数据.xlsx");
+    const summaryWs = XLSX.utils.aoa_to_sheet(summary);
+    XLSX.utils.book_append_sheet(wb, summaryWs, "汇总信息");
+    
+    XLSX.writeFile(wb, "温度数据汇总.xlsx");
   }
 
   function exportPng() {
