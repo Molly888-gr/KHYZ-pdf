@@ -90,14 +90,19 @@ function TempPage() {
   const [stats, setStats] = useState({ uploaded: 0, success: 0, failed: 0 });
 
   useEffect(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      try {
-        setRecords(JSON.parse(raw));
-      } catch {}
-    } else {
-      setRecords(makeDemo());
-    }
+    const loadData = async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        try {
+          const data = JSON.parse(raw);
+          setRecords(data);
+        } catch {}
+      } else {
+        setRecords(makeDemo());
+      }
+    };
+    loadData();
   }, []);
 
   useEffect(() => {
