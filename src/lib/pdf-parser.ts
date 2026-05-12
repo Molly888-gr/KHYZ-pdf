@@ -261,9 +261,8 @@ export function parseTemperaturePdf(text: string, fileName: string): TempRecord 
     if (idMatch) deviceId = idMatch[1].toUpperCase();
   }
   // 如果上面没找到，全局搜索 C 或 T 开头的8位字母数字
-  // 注意：不能用 \b 边界，因为像 CD68B057 这样中间有大写字母的情况下边界不生效
   if (!deviceId) {
-    const globalMatch = text.match(/(?<![A-Za-z0-9])([CT][A-Za-z0-9]{7})(?![A-Za-z0-9])/);
+    const globalMatch = text.match(/\b([CT][A-Za-z0-9]{7})\b/);
     if (globalMatch) deviceId = globalMatch[1].toUpperCase();
   }
 
