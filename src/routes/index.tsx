@@ -18,6 +18,7 @@ import { extractPdfText, parseTemperaturePdf, TempRecord } from "@/lib/pdf-parse
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
+  ssr: false,
   head: () => ({
     meta: [
       { title: "温度PDF解析 — PDF 数据解析平台" },
