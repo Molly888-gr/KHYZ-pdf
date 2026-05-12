@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build && echo '{\"name\":\"khyz-pdf\",\"pages_build_output_dir\":\"dist/client\"}' > dist/client/wrangler.json",
-    "build:dev": "vite build --mode development && echo '{\"name\":\"khyz-pdf\",\"pages_build_output_dir\":\"dist/client\"}' > dist/client/wrangler.json",
+    "build": "vite build && echo '{\"name\":\"khyz-pdf\"}' > dist/client/wrangler.json",
+    "build:dev": "vite build --mode development && echo '{\"name\":\"khyz-pdf\"}' > dist/client/wrangler.json",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write ."
