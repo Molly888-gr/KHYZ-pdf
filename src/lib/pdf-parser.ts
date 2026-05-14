@@ -254,17 +254,18 @@ export function parseTemperaturePdf(text: string, fileName: string): TempRecord 
 
   // ========== 格式一：英文格式（Frigga T7 DataReport） ==========
 
-  // 1. 设备号：查询"Device ID"后面的8位大写字母和数字
+  // 1. 设备号：查询"Device ID"后面的T开头8位大写字母和数字（如 T034C0FD、T047A243）
   let deviceId = "";
   const devMatch = text.match(/Device\s*ID[：:\s]+([A-Za-z0-9]+)/i);
   if (devMatch) {
     const id = devMatch[1].trim();
-    const idMatch = id.match(/^([CT][A-Za-z0-9]{7})$/);
+    // 仅匹配T开头的8位字母数字
+    const idMatch = id.match(/^([T][A-Za-z0-9]{7})$/);
     if (idMatch) deviceId = idMatch[1].toUpperCase();
   }
-  // 如果上面没找到，全局搜索 C 或 T 开头的8位字母数字
+  // 如果上面没找到，全局搜索 T 开头的8位字母数字
   if (!deviceId) {
-    const globalMatch = text.match(/\b([CT][A-Za-z0-9]{7})\b/);
+    const globalMatch = text.match(/\b([T][A-Za-z0-9]{7})\b/);
     if (globalMatch) deviceId = globalMatch[1].toUpperCase();
   }
 
