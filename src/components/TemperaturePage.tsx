@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import * as XLSX from "xlsx";
-import { Upload, Download, Trash2, Search, ImageDown, FileCheck2, FileX2, Files, Cpu } from "lucide-react";
+import { Upload, Download, Trash2, Search, ImageDown, FileCheck2, FileX2, Files, Cpu, Edit2, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -75,6 +75,12 @@ export function TemperaturePage() {
   const [showLimits, setShowLimits] = useState(false);
   const chartRef = useRef<any>(null);
   const [stats, setStats] = useState({ uploaded: 0, success: 0, failed: 0 });
+  // 新增：图例名称映射，支持手动修改
+  const [legendNames, setLegendNames] = useState<Record<string, string>>({});
+  // 新增：正在编辑的图例索引
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  // 新增：编辑中的图例名称
+  const [editingName, setEditingName] = useState("");
 
   useEffect(() => {
     const loadData = async () => {
@@ -100,6 +106,19 @@ export function TemperaturePage() {
     return () => clearTimeout(timer);
   }, [records]);
 
+  // 新增：拖拽处理
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const files = e.dataTransfer.files;
+    handleFiles(files);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return;
     setLoading(true);
@@ -117,6 +136,10 @@ export function TemperaturePage() {
           continue;
         }
         newRecs.push(rec);
+        // 初始化图例名称
+        if (!legendNames[rec.deviceId]) {
+          setLegendNames(prev => ({ ...prev, [rec.deviceId]: rec.deviceId }));
+        }
         success++;
       } catch (e: any) {
         toast.error(`${f.name} 解析失败: ${e.message}`);
@@ -133,14 +156,36 @@ export function TemperaturePage() {
     toast.success(`成功解析 ${success} 个文件${failed ? `，失败 ${failed} 个` : ""}`);
   }
 
+  // 新增：开始编辑图例名称
+  const startEditLegend = (index: number, deviceId: string) => {
+    setEditingIndex(index);
+    setEditingName(legendNames[deviceId] || deviceId);
+  };
+
+  // 新增：保存图例名称
+  const saveLegendName = (deviceId: string) => {
+    if (editingName.trim()) {
+      setLegendNames(prev => ({ ...prev, [deviceId]: editingName.trim() }));
+    }
+    setEditingIndex(null);
+    setEditingName("");
+  };
+
+  // 新增：取消编辑
+  const cancelEdit = () => {
+    setEditingIndex(null);
+    setEditingName("");
+  };
+
   const filtered = useMemo(
     () =>
       records.filter(
         (r) =>
           r.fileName.toLowerCase().includes(search.toLowerCase()) ||
-          r.deviceId.toLowerCase().includes(search.toLowerCase())
+          r.deviceId.toLowerCase().includes(search.toLowerCase()) ||
+          (legendNames[r.deviceId] && legendNames[r.deviceId].toLowerCase().includes(search.toLowerCase()))
       ),
-    [records, search]
+    [records, search, legendNames]
   );
 
   const chartStats = useMemo(() => {
@@ -169,7 +214,7 @@ export function TemperaturePage() {
     const l = parseFloat(lower);
 
     const series: any[] = records.map((r, i) => ({
-      name: r.deviceId,
+      name: legendNames[r.deviceId] || r.deviceId,
       type: "line",
       showSymbol: totalPoints < 500,
       lineStyle: { width: 2.25, type: "solid" },
@@ -183,25 +228,25 @@ export function TemperaturePage() {
         series.push({
           name: "上限",
           type: "line",
-          markLine: {
-            silent: true,
-            symbol: "none",
-            lineStyle: { color: "#dc2626", width: 1, type: "solid" },
-            data: [{ yAxis: u, label: { formatter: `上限 ${u}°C` } }],
-          },
-          data: [],
+          showSymbol: false,
+          lineStyle: { color: "#dc2626", width: 1, type: "solid" },
+          itemStyle: { color: "#dc2626" },
+          data: records.length > 0 ? [
+            [records[0].points[0]?.time || new Date().toISOString(), u],
+            [records[0].points[records[0].points.length - 1]?.time || new Date().toISOString(), u],
+          ] : [],
         });
       if (!isNaN(l))
         series.push({
           name: "下限",
           type: "line",
-          markLine: {
-            silent: true,
-            symbol: "none",
-            lineStyle: { color: "#dc2626", width: 1, type: "solid" },
-            data: [{ yAxis: l, label: { formatter: `下限 ${l}°C` } }],
-          },
-          data: [],
+          showSymbol: false,
+          lineStyle: { color: "#dc2626", width: 1, type: "solid" },
+          itemStyle: { color: "#dc2626" },
+          data: records.length > 0 ? [
+            [records[0].points[0]?.time || new Date().toISOString(), l],
+            [records[0].points[records[0].points.length - 1]?.time || new Date().toISOString(), l],
+          ] : [],
         });
     }
 
@@ -227,7 +272,20 @@ export function TemperaturePage() {
 
     return {
       tooltip: { trigger: "axis", backgroundColor: "rgba(255,255,255,0.95)", borderColor: "#e5e7eb" },
-      legend: { top: 0, type: "scroll", pageTextStyle: { color: "#6b7280" } },
+      legend: { 
+        top: 0, 
+        type: "scroll", 
+        pageTextStyle: { color: "#6b7280" },
+        // 自定义图例项，确保上下限显示红色
+        formatter: (name: string) => {
+          if (name === "上限" || name === "下限") {
+            return `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:#dc2626;margin-right:5px;"></span>${name}`;
+          }
+          const index = records.findIndex(r => legendNames[r.deviceId] === name || r.deviceId === name);
+          const color = index >= 0 ? COLORS[index % COLORS.length] : "#999";
+          return `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${color};margin-right:5px;"></span>${name}`;
+        }
+      },
       grid: { left: 60, right: 40, top: 50, bottom: 80 },
       xAxis: {
         type: "time",
@@ -254,7 +312,7 @@ export function TemperaturePage() {
       ] : [],
       series,
     };
-  }, [records, showLimits, upper, lower, chartStats]);
+  }, [records, showLimits, upper, lower, chartStats, legendNames]);
 
   function generateChart() {
     if (!upper || !lower) {
@@ -278,7 +336,7 @@ export function TemperaturePage() {
         const header = ["序号", "时间", "温度(°C)"];
         const rows = r.points.map((p, idx) => [idx + 1, p.time, p.temp]);
         const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
-        const sheetName = (r.deviceId || r.fileName).replace(/[\\/*?[\]:]/g, "_").substring(0, 31);
+        const sheetName = (legendNames[r.deviceId] || r.deviceId || r.fileName).replace(/[\\/*?[\]:]/g, "_").substring(0, 31);
         XLSX.utils.book_append_sheet(wb, ws, sheetName);
         await new Promise(resolve => setTimeout(resolve, 0));
       }
@@ -286,7 +344,7 @@ export function TemperaturePage() {
       const allTimes = new Set<string>();
       records.forEach((r) => r.points.forEach((p) => allTimes.add(p.time)));
       const sorted = Array.from(allTimes).sort();
-      const combinedHeader = ["时间", ...records.map((r) => r.deviceId), "上限", "下限"];
+      const combinedHeader = ["时间", ...records.map((r) => legendNames[r.deviceId] || r.deviceId), "上限", "下限"];
       const combinedRows = [];
       for (const t of sorted) {
         const row: any[] = [t];
@@ -311,8 +369,8 @@ export function TemperaturePage() {
       XLSX.utils.book_append_sheet(wb, limitsWs, "上下限数据");
 
       const summary = [
-        ["文件名", "设备号", "开始时间", "结束时间", "运输时长", "数据点数", "最高温(°C)", "最低温(°C)", "平均温(°C)"],
-        ...records.map((r) => [r.fileName, r.deviceId, r.start, r.end, r.duration || formatDuration(r.start, r.end), r.dataPoints, r.highest, r.lowest, r.average]),
+        ["文件名", "设备号", "图例名称", "开始时间", "结束时间", "运输时长", "数据点数", "最高温(°C)", "最低温(°C)", "平均温(°C)"],
+        ...records.map((r) => [r.fileName, r.deviceId, legendNames[r.deviceId] || r.deviceId, r.start, r.end, r.duration || formatDuration(r.start, r.end), r.dataPoints, r.highest, r.lowest, r.average]),
       ];
       const summaryWs = XLSX.utils.aoa_to_sheet(summary);
       XLSX.utils.book_append_sheet(wb, summaryWs, "汇总信息");
@@ -402,6 +460,7 @@ export function TemperaturePage() {
               onClick={() => {
                 setRecords([]);
                 setStats({ uploaded: 0, success: 0, failed: 0 });
+                setLegendNames({});
                 localStorage.removeItem(STORAGE_KEY);
               }}
               className="h-10 rounded-xl"
@@ -411,7 +470,13 @@ export function TemperaturePage() {
             </Button>
           </div>
         </div>
-        <div className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl p-10 text-center bg-slate-50/50 transition-colors duration-200">
+        {/* 新增：拖拽上传功能 */}
+        <div
+          className="border-2 border-dashed border-slate-200 hover:border-blue-400 hover:bg-blue-50/30 rounded-2xl p-10 text-center bg-slate-50/50 transition-all duration-200 cursor-pointer"
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onClick={() => document.querySelector('input[type="file"]')?.click()}
+        >
           <Upload className="mx-auto h-10 w-10 text-slate-400 mb-3" />
           <p className="text-sm font-medium text-slate-600">点击或拖拽 PDF 文件到此处</p>
           <p className="text-xs text-slate-400 mt-1">可批量上传多个文件</p>
@@ -428,7 +493,7 @@ export function TemperaturePage() {
             <div className="relative flex-1 max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <Input
-                placeholder="搜索文件 / 设备号"
+                placeholder="搜索文件 / 设备号 / 图例名称"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-9 h-10 rounded-xl bg-white border-slate-200 w-full"
@@ -446,6 +511,7 @@ export function TemperaturePage() {
               <TableRow className="hover:bg-transparent border-slate-200">
                 <TableHead className="py-4 px-5 text-sm font-semibold text-slate-700 w-[220px]">文件名</TableHead>
                 <TableHead className="py-4 px-5 text-sm font-semibold text-slate-700 w-[120px]">设备号</TableHead>
+                <TableHead className="py-4 px-5 text-sm font-semibold text-slate-700 w-[150px]">图例名称</TableHead>
                 <TableHead className="py-4 px-5 text-sm font-semibold text-slate-700 w-[170px]">开始时间</TableHead>
                 <TableHead className="py-4 px-5 text-sm font-semibold text-slate-700 w-[170px]">结束时间</TableHead>
                 <TableHead className="py-4 px-5 text-sm font-semibold text-slate-700 w-[130px]">运输时长</TableHead>
@@ -460,6 +526,51 @@ export function TemperaturePage() {
                 <TableRow key={i} className="hover:bg-slate-50 border-b border-slate-100">
                   <TableCell className="py-4 px-5 font-mono text-xs text-slate-500 w-[220px] truncate">{r.fileName}</TableCell>
                   <TableCell className="py-4 px-5 font-medium text-slate-900 w-[120px]">{r.deviceId}</TableCell>
+                  <TableCell className="py-4 px-5 w-[150px]">
+                    {editingIndex === i ? (
+                      <div className="flex items-center gap-1">
+                        <Input
+                          value={editingName}
+                          onChange={(e) => setEditingName(e.target.value)}
+                          className="h-7 w-28"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") saveLegendName(r.deviceId);
+                            if (e.key === "Escape") cancelEdit();
+                          }}
+                        />
+                        <Button
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => saveLegendName(r.deviceId)}
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="h-7 w-7"
+                          onClick={cancelEdit}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-slate-900">
+                          {legendNames[r.deviceId] || r.deviceId}
+                        </span>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                          onClick={() => startEditLegend(i, r.deviceId)}
+                        >
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell className="py-4 px-5 text-xs tabular-nums text-slate-700 w-[170px]">{r.start}</TableCell>
                   <TableCell className="py-4 px-5 text-xs tabular-nums text-slate-700 w-[170px]">{r.end}</TableCell>
                   <TableCell className="py-4 px-5 text-sm font-semibold text-blue-600 tabular-nums w-[130px]">{r.duration || formatDuration(r.start, r.end)}</TableCell>
@@ -471,7 +582,7 @@ export function TemperaturePage() {
               ))}
               {!filtered.length && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-slate-400 py-16">
+                  <TableCell colSpan={10} className="text-center text-slate-400 py-16">
                     暂无数据
                   </TableCell>
                 </TableRow>
