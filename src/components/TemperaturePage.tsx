@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import * as XLSX from "xlsx";
-import { Upload, Download, Trash2, Search, ImageDown, FileCheck2, FileX2, Files, Cpu, Edit2, Check, X } from "lucide-react";
+import { Upload, Download, Trash2, Search, ImageDown, FileCheck2, FileX2, Files, Cpu, Edit2, Check, X, XCircle, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -12,6 +12,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { extractPdfText, parseTemperaturePdf, TempRecord } from "@/lib/pdf-parser";
 import { toast } from "sonner";
 
@@ -75,12 +82,14 @@ export function TemperaturePage() {
   const [showLimits, setShowLimits] = useState(false);
   const chartRef = useRef<any>(null);
   const [stats, setStats] = useState({ uploaded: 0, success: 0, failed: 0 });
-  // 新增：图例名称映射，支持手动修改
+  // 图例名称映射，支持手动修改
   const [legendNames, setLegendNames] = useState<Record<string, string>>({});
-  // 新增：正在编辑的图例索引
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  // 新增：编辑中的图例名称
-  const [editingName, setEditingName] = useState("");
+  // 修改图例对话框状态
+  const [showLegendModal, setShowLegendModal] = useState(false);
+  // 正在编辑的图例临时数据
+  const [editingLegends, setEditingLegends] = useState<Record<string, string>>({});
+  // 正在编辑的设备ID
+  const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -106,7 +115,20 @@ export function TemperaturePage() {
     return () => clearTimeout(timer);
   }, [records]);
 
-  // 新增：拖拽处理
+  // 初始化图例名称
+  useEffect(() => {
+    const newLegendNames: Record<string, string> = {};
+    records.forEach(r => {
+      if (!legendNames[r.deviceId]) {
+        newLegendNames[r.deviceId] = r.deviceId;
+      }
+    });
+    if (Object.keys(newLegendNames).length > 0) {
+      setLegendNames(prev => ({ ...prev, ...newLegendNames }));
+    }
+  }, [records]);
+
+  // 拖拽处理
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -156,25 +178,52 @@ export function TemperaturePage() {
     toast.success(`成功解析 ${success} 个文件${failed ? `，失败 ${failed} 个` : ""}`);
   }
 
-  // 新增：开始编辑图例名称
-  const startEditLegend = (index: number, deviceId: string) => {
-    setEditingIndex(index);
-    setEditingName(legendNames[deviceId] || deviceId);
+  // 打开修改图例对话框
+  const openLegendModal = () => {
+    // 初始化编辑数据
+    const initialEditing: Record<string, string> = {};
+    records.forEach(r => {
+      initialEditing[r.deviceId] = legendNames[r.deviceId] || r.deviceId;
+    });
+    setEditingLegends(initialEditing);
+    setShowLegendModal(true);
   };
 
-  // 新增：保存图例名称
-  const saveLegendName = (deviceId: string) => {
-    if (editingName.trim()) {
-      setLegendNames(prev => ({ ...prev, [deviceId]: editingName.trim() }));
+  // 开始编辑某个图例
+  const startEditLegendItem = (deviceId: string) => {
+    setEditingDeviceId(deviceId);
+  };
+
+  // 保存单个图例修改
+  const saveLegendItem = (deviceId: string) => {
+    const newName = editingLegends[deviceId]?.trim();
+    if (newName) {
+      setLegendNames(prev => ({ ...prev, [deviceId]: newName }));
     }
-    setEditingIndex(null);
-    setEditingName("");
+    setEditingDeviceId(null);
   };
 
-  // 新增：取消编辑
+  // 取消编辑
   const cancelEdit = () => {
-    setEditingIndex(null);
-    setEditingName("");
+    setEditingDeviceId(null);
+  };
+
+  // 保存所有图例修改
+  const saveAllLegends = () => {
+    setLegendNames({ ...editingLegends });
+    setShowLegendModal(false);
+    toast.success("图例名称已更新");
+  };
+
+  // 重置图例为设备号
+  const resetLegends = () => {
+    const resetNames: Record<string, string> = {};
+    records.forEach(r => {
+      resetNames[r.deviceId] = r.deviceId;
+    });
+    setLegendNames(resetNames);
+    setEditingLegends(resetNames);
+    toast.success("图例已重置为设备号");
   };
 
   const filtered = useMemo(
@@ -229,7 +278,7 @@ export function TemperaturePage() {
           name: "上限",
           type: "line",
           showSymbol: false,
-          lineStyle: { color: "#dc2626", width: 1, type: "solid" },
+          lineStyle: { color: "#dc2626", width: 1.5, type: "solid" },
           itemStyle: { color: "#dc2626" },
           data: records.length > 0 ? [
             [records[0].points[0]?.time || new Date().toISOString(), u],
@@ -241,7 +290,7 @@ export function TemperaturePage() {
           name: "下限",
           type: "line",
           showSymbol: false,
-          lineStyle: { color: "#dc2626", width: 1, type: "solid" },
+          lineStyle: { color: "#dc2626", width: 1.5, type: "solid" },
           itemStyle: { color: "#dc2626" },
           data: records.length > 0 ? [
             [records[0].points[0]?.time || new Date().toISOString(), l],
@@ -276,15 +325,8 @@ export function TemperaturePage() {
         top: 0, 
         type: "scroll", 
         pageTextStyle: { color: "#6b7280" },
-        // 自定义图例项，确保上下限显示红色
-        formatter: (name: string) => {
-          if (name === "上限" || name === "下限") {
-            return `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:#dc2626;margin-right:5px;"></span>${name}`;
-          }
-          const index = records.findIndex(r => legendNames[r.deviceId] === name || r.deviceId === name);
-          const color = index >= 0 ? COLORS[index % COLORS.length] : "#999";
-          return `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${color};margin-right:5px;"></span>${name}`;
-        }
+        // 使用ECharts默认的图例渲染，避免HTML标签问题
+        textStyle: { color: "#374151" },
       },
       grid: { left: 60, right: 40, top: 50, bottom: 80 },
       xAxis: {
@@ -470,7 +512,7 @@ export function TemperaturePage() {
             </Button>
           </div>
         </div>
-        {/* 新增：拖拽上传功能 */}
+        {/* 拖拽上传区域 */}
         <div
           className="border-2 border-dashed border-slate-200 hover:border-blue-400 hover:bg-blue-50/30 rounded-2xl p-10 text-center bg-slate-50/50 transition-all duration-200 cursor-pointer"
           onDrop={handleDrop}
@@ -526,50 +568,8 @@ export function TemperaturePage() {
                 <TableRow key={i} className="hover:bg-slate-50 border-b border-slate-100">
                   <TableCell className="py-4 px-5 font-mono text-xs text-slate-500 w-[220px] truncate">{r.fileName}</TableCell>
                   <TableCell className="py-4 px-5 font-medium text-slate-900 w-[120px]">{r.deviceId}</TableCell>
-                  <TableCell className="py-4 px-5 w-[150px]">
-                    {editingIndex === i ? (
-                      <div className="flex items-center gap-1">
-                        <Input
-                          value={editingName}
-                          onChange={(e) => setEditingName(e.target.value)}
-                          className="h-7 w-28"
-                          autoFocus
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") saveLegendName(r.deviceId);
-                            if (e.key === "Escape") cancelEdit();
-                          }}
-                        />
-                        <Button
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() => saveLegendName(r.deviceId)}
-                        >
-                          <Check className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="outline"
-                          className="h-7 w-7"
-                          onClick={cancelEdit}
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-slate-900">
-                          {legendNames[r.deviceId] || r.deviceId}
-                        </span>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6 opacity-0 group-hover:opacity-100"
-                          onClick={() => startEditLegend(i, r.deviceId)}
-                        >
-                          <Edit2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    )}
+                  <TableCell className="py-4 px-5 text-sm font-medium text-slate-900 w-[150px]">
+                    {legendNames[r.deviceId] || r.deviceId}
                   </TableCell>
                   <TableCell className="py-4 px-5 text-xs tabular-nums text-slate-700 w-[170px]">{r.start}</TableCell>
                   <TableCell className="py-4 px-5 text-xs tabular-nums text-slate-700 w-[170px]">{r.end}</TableCell>
@@ -628,6 +628,94 @@ export function TemperaturePage() {
               <ImageDown className="mr-1.5 h-4 w-4" />
               导出PNG图片
             </Button>
+            <Dialog open={showLegendModal} onOpenChange={setShowLegendModal}>
+              <DialogTrigger asChild>
+                <Button variant="outline" disabled={!records.length} className="h-10 rounded-xl">
+                  <Settings className="mr-1.5 h-4 w-4" />
+                  修改图例
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center justify-between">
+                    <span>修改图例名称</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={resetLegends}
+                      className="h-8 px-2"
+                    >
+                      <XCircle className="h-4 w-4 mr-1" />
+                      重置为设备号
+                    </Button>
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3 mt-4">
+                  {records.map((r, i) => (
+                    <div key={r.deviceId} className="flex items-center gap-3">
+                      <div
+                        className="w-3 h-3 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: COLORS[i % COLORS.length] }}
+                      />
+                      {editingDeviceId === r.deviceId ? (
+                        <div className="flex-1 flex items-center gap-2">
+                          <Input
+                            value={editingLegends[r.deviceId] || ""}
+                            onChange={(e) =>
+                              setEditingLegends((prev) => ({
+                                ...prev,
+                                [r.deviceId]: e.target.value,
+                              }))
+                            }
+                            className="flex-1"
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") saveLegendItem(r.deviceId);
+                              if (e.key === "Escape") cancelEdit();
+                            }}
+                          />
+                          <Button
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => saveLegendItem(r.deviceId)}
+                          >
+                            <Check className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="h-8 w-8"
+                            onClick={cancelEdit}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex-1 flex items-center justify-between">
+                          <span className="text-sm text-slate-700">
+                            {editingLegends[r.deviceId] || r.deviceId}
+                          </span>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            onClick={() => startEditLegendItem(r.deviceId)}
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-end gap-3 mt-6">
+                  <Button variant="outline" onClick={() => setShowLegendModal(false)}>
+                    取消
+                  </Button>
+                  <Button onClick={saveAllLegends}>保存修改</Button>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         </div>
         <div className="bg-slate-50/50 rounded-2xl border border-slate-200 p-4">
