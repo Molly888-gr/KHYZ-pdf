@@ -121,6 +121,18 @@ export function CalibrationPage() {
     toast.success(`成功解析 ${success} 个证书${failed ? `，失败 ${failed} 个` : ""}`);
   }
 
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      handleFiles(files);
+    }
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+  }
+
   const filtered = useMemo(
     () =>
       records.filter(
@@ -207,7 +219,12 @@ export function CalibrationPage() {
             </Button>
           </div>
         </div>
-        <div className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl p-10 text-center bg-slate-50/50 transition-colors duration-200">
+        <div
+          className="border-2 border-dashed border-slate-200 hover:border-blue-400 hover:bg-blue-50/30 rounded-2xl p-10 text-center bg-slate-50/50 transition-all duration-200 cursor-pointer"
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onClick={() => document.querySelector('input[type="file"]')?.click()}
+        >
           <Upload className="mx-auto h-10 w-10 text-slate-400 mb-3" />
           <p className="text-sm font-medium text-slate-600">点击或拖拽 PDF 文件到此处</p>
           <p className="text-xs text-slate-400 mt-1">支持批量上传，自动判断证书类型</p>
@@ -258,7 +275,20 @@ export function CalibrationPage() {
                     <TableCell className="py-4 px-5 text-sm tabular-nums text-slate-700 w-[140px]">{r.calDate}</TableCell>
                     <TableCell className="py-4 px-5 text-sm tabular-nums text-slate-700 w-[140px]">{r.nextCalDate}</TableCell>
                     <TableCell className="py-4 px-5 text-right tabular-nums font-medium text-slate-900 w-[100px]">
-                      {(r.maxError ?? 0) > 0 ? `+${r.maxError}` : r.maxError ?? 0}℃
+                      {(() => {
+                        const maxErr = r.maxError ?? 0;
+                        const absMax = Math.abs(maxErr);
+                        // 检查是否同时存在正负两个方向的最大值
+                        const hasPositive = r.errors.some(e => Math.abs(e - absMax) < 0.001);
+                        const hasNegative = r.errors.some(e => Math.abs(e + absMax) < 0.001);
+                        if (hasPositive && hasNegative) {
+                          return `±${absMax}℃`;
+                        } else if (maxErr > 0) {
+                          return `+${maxErr}℃`;
+                        } else {
+                          return `${maxErr}℃`;
+                        }
+                      })()}
                     </TableCell>
                     <TableCell className="py-4 px-5 w-[120px]">
                       <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${s.cls}`}>

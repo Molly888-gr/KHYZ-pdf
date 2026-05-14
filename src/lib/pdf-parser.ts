@@ -434,24 +434,75 @@ export function parseCalibrationPdf(text: string, fileName: string): CalRecord {
   }
 
   // ---- 误差提取 ----
-  // 从最后一页提取"示值误差"列中的值
-  const errorSection = text.match(/示值误差[\s\S]*?(?=\n\s*\n|$)/i);
+  // 从最后一页提取"校准结果"下面的"示值误差"表格
+  // 大标题：校准结果（Results of Calibration）
+  // 小标题：示值误差（Indication Error） 或 示值误差校准（Error of indication）
   let errors: number[] = [];
-  if (errorSection) {
-    const errorNums = errorSection[0].match(/([+-]?\d+\.\d+)/g);
-    if (errorNums) {
-      errors = errorNums.map((n) => parseFloat(n)).filter((n) => Math.abs(n) <= 5);
+  
+  // 查找校准结果部分
+  const calibrationResultMatch = text.match(/校准结果|Results\s+of\s+Calibration/i);
+  if (calibrationResultMatch) {
+    const startIndex = calibrationResultMatch.index!;
+    const resultSection = text.substring(startIndex);
+    
+    // 查找示值误差小标题
+    const errorTitleMatch = resultSection.match(/示值误差(校准)?\s*(?:\(Indication\s+Error\))?|Error\s+of\s+indication/i);
+    if (errorTitleMatch) {
+      const errorStartIndex = errorTitleMatch.index!;
+      let errorSection = resultSection.substring(errorStartIndex);
+      
+      // 提取到下一个空行或表格结束
+      const emptyLineMatch = errorSection.match(/\n\s*\n/);
+      if (emptyLineMatch) {
+        errorSection = errorSection.substring(0, emptyLineMatch.index!);
+      }
+      
+      // 提取表格中的数值
+      // 格式一（4页）：示值误差（error）列
+      // 格式二（3页）：示值误差（Indication Error）列
+      const errorValues = errorSection.match(/[+-]?\d+\.\d+/g);
+      if (errorValues) {
+        errors = errorValues.map((n) => parseFloat(n)).filter((n) => Math.abs(n) <= 10);
+      }
     }
   }
-  // 如果上面没找到，回退到全文搜索
+  
+  // 如果上面没找到，回退到全文搜索"示值误差"附近的值
+  if (!errors.length) {
+    const errorSection = text.match(/示值误差[\s\S]*?(?=\n\s*\n|$)/i);
+    if (errorSection) {
+      const errorNums = errorSection[0].match(/([+-]?\d+\.\d+)/g);
+      if (errorNums) {
+        errors = errorNums.map((n) => parseFloat(n)).filter((n) => Math.abs(n) <= 10);
+      }
+    }
+  }
+  
+  // 如果还是没找到，回退到全文搜索
   if (!errors.length) {
     const allNums = Array.from(text.matchAll(/-?\d+\.\d+/g)).map((m) => parseFloat(m[0]));
-    errors = allNums.filter((n) => Math.abs(n) <= 5);
+    errors = allNums.filter((n) => Math.abs(n) <= 10);
   }
 
+  // 计算最大误差（保留符号信息）
   let maxError = 0;
   if (errors.length) {
-    maxError = errors.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a), errors[0]);
+    // 找到绝对值最大的值
+    const maxAbs = Math.max(...errors.map(Math.abs));
+    // 检查是否同时存在正负两个方向的最大值
+    const hasPositive = errors.some(e => Math.abs(e - maxAbs) < 0.001);
+    const hasNegative = errors.some(e => Math.abs(e + maxAbs) < 0.001);
+    
+    if (hasPositive && hasNegative) {
+      // 如果同时存在正负两个方向的最大值，返回正值（显示时会处理为±）
+      maxError = maxAbs;
+    } else if (hasPositive) {
+      maxError = maxAbs;
+    } else if (hasNegative) {
+      maxError = -maxAbs;
+    } else {
+      maxError = errors.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a), errors[0]);
+    }
   }
 
   // ---- 日期提取 ----
