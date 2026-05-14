@@ -434,9 +434,7 @@ export function parseCalibrationPdf(text: string, fileName: string): CalRecord {
   }
 
   // ---- 误差提取 ----
-  // 从最后一页提取"校准结果"下面的"示值误差"表格
-  // 大标题：校准结果（Results of Calibration）
-  // 小标题：示值误差（Indication Error） 或 示值误差校准（Error of indication）
+  // 根据证书格式提取示值误差列的数值
   let errors: number[] = [];
   
   // 查找校准结果部分
@@ -457,12 +455,40 @@ export function parseCalibrationPdf(text: string, fileName: string): CalRecord {
         errorSection = errorSection.substring(0, emptyLineMatch.index!);
       }
       
-      // 提取表格中的数值
-      // 格式一（4页）：示值误差（error）列
-      // 格式二（3页）：示值误差（Indication Error）列
-      const errorValues = errorSection.match(/[+-]?\d+\.\d+/g);
-      if (errorValues) {
-        errors = errorValues.map((n) => parseFloat(n)).filter((n) => Math.abs(n) <= 10);
+      // 根据格式提取正确的列
+      if (isFormatB) {
+        // 格式B（广电计量，4页）：表格有5列，示值误差在第4列
+        // 列顺序：校准点 | 标准示值 | 被检器示值 | 示值误差 | 不确定度
+        // 提取每行的第4个数值
+        const lines = errorSection.split('\n').filter(line => line.trim());
+        for (const line of lines) {
+          // 匹配一行中的所有数值（包含正负号）
+          const nums = line.match(/[+-]?\d+\.\d+/g);
+          if (nums && nums.length >= 4) {
+            // 取第4列（索引3）
+            const errorVal = parseFloat(nums[3]);
+            if (!isNaN(errorVal) && Math.abs(errorVal) <= 10) {
+              errors.push(errorVal);
+            }
+          }
+        }
+      } else {
+        // 格式A（深圳天溯，3页）：表格有4列，示值误差在第4列（最后一列）
+        // 列顺序：校准点 | 标准值 | 示值 | 示值误差
+        // 提取每行的最后一个数值
+        const lines = errorSection.split('\n').filter(line => line.trim());
+        for (const line of lines) {
+          // 匹配一行中的所有数值（包含正负号和℃单位）
+          const nums = line.match(/[+-]?\d+\.\d+℃?/g);
+          if (nums && nums.length >= 4) {
+            // 取最后一列
+            const lastVal = nums[nums.length - 1];
+            const errorVal = parseFloat(lastVal.replace('℃', ''));
+            if (!isNaN(errorVal) && Math.abs(errorVal) <= 10) {
+              errors.push(errorVal);
+            }
+          }
+        }
       }
     }
   }
@@ -471,14 +497,36 @@ export function parseCalibrationPdf(text: string, fileName: string): CalRecord {
   if (!errors.length) {
     const errorSection = text.match(/示值误差[\s\S]*?(?=\n\s*\n|$)/i);
     if (errorSection) {
-      const errorNums = errorSection[0].match(/([+-]?\d+\.\d+)/g);
-      if (errorNums) {
-        errors = errorNums.map((n) => parseFloat(n)).filter((n) => Math.abs(n) <= 10);
+      if (isFormatB) {
+        // 格式B：提取每行的第4个数值
+        const lines = errorSection[0].split('\n').filter(line => line.trim());
+        for (const line of lines) {
+          const nums = line.match(/[+-]?\d+\.\d+/g);
+          if (nums && nums.length >= 4) {
+            const errorVal = parseFloat(nums[3]);
+            if (!isNaN(errorVal) && Math.abs(errorVal) <= 10) {
+              errors.push(errorVal);
+            }
+          }
+        }
+      } else {
+        // 格式A：提取每行的最后一个数值
+        const lines = errorSection[0].split('\n').filter(line => line.trim());
+        for (const line of lines) {
+          const nums = line.match(/[+-]?\d+\.\d+℃?/g);
+          if (nums && nums.length >= 4) {
+            const lastVal = nums[nums.length - 1];
+            const errorVal = parseFloat(lastVal.replace('℃', ''));
+            if (!isNaN(errorVal) && Math.abs(errorVal) <= 10) {
+              errors.push(errorVal);
+            }
+          }
+        }
       }
     }
   }
   
-  // 如果还是没找到，回退到全文搜索
+  // 如果还是没找到，回退到全文搜索（仅保留小数值）
   if (!errors.length) {
     const allNums = Array.from(text.matchAll(/-?\d+\.\d+/g)).map((m) => parseFloat(m[0]));
     errors = allNums.filter((n) => Math.abs(n) <= 10);
